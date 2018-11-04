@@ -1,0 +1,571 @@
+---
+title: "Pokemons and Data Visualization with R"
+#output: 
+#  html_notebook:
+#    code_folding: none
+output: html_document
+runtime: shiny
+---
+ 
+##Introduction
+
+Through this R notebook like document, we will try to **learn R basics** and use it to **visualize data**. However, we will not use R in its pure form. Indeed, there are several packages that make it much cleaner and much easier to use. Those powerful packages are : the ones in **tidyverse**, **dplyr**, and **ggplot2**. To create interactive plots, we will also discover and use **shiny**. Finally, to create maps, we will need **leaflet**.  
+
+We've chosen our main dataset so that it will make this learning funnier, or at least that's what we wanted. The dataset is about Pokemons ! More precisely, it is describing each of the Pokemons characteristics.  
+
+First of all, some informations to set everything.  
+  
+***
+
+###Datasets sources
+All our datasets are from Kaggle.
+
+#### Our main dataset, describing Pokemons characteristics :
+Name : pokemon.csv  
+Size : 96 ko  
+Source : https://www.kaggle.com/alopez247/pokemon  
+Link used in the project : https://perso.esiee.fr/~ghidaglb/DRIO-4103C/pokemon.csv  
+
+
+#### The dataset we'll use to get Pokemon locations (in PokemonGO) :  
+Name : 300k.csv  
+Size : 497 646 ko  
+**/!\ WARNING : the first time you'll run the project, it will have to download this file from the internet, so it may take a while ... But once it's done, the file is saved locally in a .csv /!\\**  
+Source : https://www.kaggle.com/semioniy/predictemall#300k_csv.zip  
+Link used in the project : https://perso.esiee.fr/~ghidaglb/DRIO-4103C/300k.csv  
+
+#### A directory with an illustration of each Pokemon, to make our location plot nicer :  
+Name : POKEMON.zip  
+Source : https://www.kaggle.com/dollarakshay/pokemon-images  
+Link used in the project : you'll download it with the repo  
+
+
+***
+
+###Libraries required
+We mentioned them in the introduction, the libraries we will need are, exhaustively :  
+
+* dplyr  
+* ggplot2  
+* leaflet  
+* Rcurl  
+* shiny  
+
+The code below will do the installing and importing job for you.   
+
+```{r}
+# Installing missing packages
+list.of.packages <- c("ggplot2", "RCurl", "shiny", "dplyr", "leaflet")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
+# Importing libraries
+library(dplyr)
+library(ggplot2)
+library(leaflet)
+library(RCurl)
+library(shiny)
+```
+
+***
+
+##Exploration
+### The questions we will answer  
+
+we will gradually increase the complexity of our exploration.
+
+A - What is the male / female ratio amongst the Pokemons ?  
+
+B - Is there a type in which pokemons are stronger ?  
+ 
+C - Where can we find them ?  
+
+###Importing and discovering the datasets
+
+Obviously, the first thing we want to do to is to import our dataset. We want to do it locally, if it is possible, otherwise we want to download the datasets from my personal school web page.  
+
+Because we don't want to duplicate our code, but also because we want to learn R, we will create a function to satisfy those requirements. It will just check if the file we want exists locally, if not it will download it, and in both ways it will return a dataframe created with this newly imported dataset.
+```{r}
+# Creating the function
+import.or.download.from.perso <- function(filename){
+  if(!file.exists(filename)){
+    # FROM THE WEB
+    URL <- paste0("https://perso.esiee.fr/~ghidaglb/DRIO-4103C/", filename)
+    dtf <- data.frame(read.csv(textConnection(RCurl::getURL(URL)), encoding = "UTF-8"))
+    write.csv(file = filename, dtf)
+    return(dtf)
+  } else {
+    # LOCAL
+    dtf <- data.frame(read.csv(filename))
+    return(dtf)
+  }
+}
+```
+Well, crete a function is pretty simple. And there are a few things to note here :  
+
+* the function name is : *import.or.download.from.perso*. If you're a python person, you may think it's a silly thing, but in R you can use dots in functions names.  
+* we used the *return* statement but we could have ignored it and just written down the thing we wanted to return. Here, *dtf* for example.  
+* the function paste0 we used, from the base package, allows us to concatenate strings.  
+* the function we created is very elementary, we could pass it various parameters types to make it crash, but that's not the point here. For what we want to do, it's well enough.  
+
+Now we use it.
+```{r}
+# Main dataset 
+dtf <- import.or.download.from.perso("pokemon.csv")
+
+# Locations dataset 
+bdtf <- import.or.download.from.perso("300k.csv")
+```
+
+Now, the thing is : the *bdtf* is very large and has a lot of columns (you can check its overview on Kaggle), and we will only use a fraction of them. So, why not select and keep only the columns we'll need : pokemonId, city, latitude and longitude. In the meantime, we'll do se same for the *dtf* dataframe, it is not that big, but anyway.
+
+The function select from the dplyr package lets us do that. Along with a pipe, the **%>%** sign, it's very efficient. A pipe is used to "pass" the output of a command to another one. It's definitely possible to chain more than two command with pipes, we'll do it later.
+
+```{r}
+bdtf <- bdtf %>% dplyr::select(pokemonId, city, latitude, longitude)
+dtf <- dtf %>% dplyr::select(Number, Name, Type_1, Total, HP, Pr_Male, hasGender, Catch_Rate)
+```
+
+Theoretically, our datasets have been well transposed into dataframes. Let's describe them to discover the data we'll be able to play with.  
+
+The main dataframe we'll use is described as :
+
+```{r}
+str(dtf)
+```
+
+And the one for the locations :
+```{r}
+str(bdtf)
+```
+
+As you can see, the str function is really handy to understand the way our objects are built, but if we want something more visual, to see a little data chunk, we can use the head function :
+```{r}
+shiny::renderTable({
+  head(dtf)
+}, striped = TRUE)
+```
+And :
+```{r}
+shiny::renderTable({
+  head(bdtf)
+}, striped = TRUE)
+```
+
+We had to use the renderTable function from the shiny package to make the head print look correct. Indeed, as we are rendering a *html_document* and not a *html_notebook*, some outputs aren't well displayed.  
+
+Everything is ready ! We can begin answering the questions.  
+
+***
+
+###A - What is the male / female ratio amongst the Pokemons ?  
+####Straight answer
+In our dataset, two columns are about the gender : the first one is **hasGender** and the second one is **Pr_Male**. First, we want to calculate the percentage of pokemons with and without gender. To calculate this ratio, we need to count how many TRUE and FALSE are written in the hasGender column of our dataset. Convert this column into a **table** is a nice way to do it :
+
+```{r}
+shiny::renderTable({
+  table(dtf$hasGender)
+}, striped = TRUE)
+```
+
+Done. Too easy with the help of a table. Now we know that 644 out of 721 have a gender. And over those pokemons, how many are male / female ? Let's create a subset of our main dataframe with the only columns that we need : **Pr_MAle** and **hasGender**. Then, we only keep the rows with hasGender equal to "True", and we remove the hasGender column. The last thing to do is calculate the mean of the Pr_Male column.  
+
+We'll do this by chaining the dplyr functions select and filter. 
+
+```{r}
+df_gender <- dtf %>% dplyr::select(Pr_Male, hasGender) %>% dplyr::filter(hasGender == "True")  %>% dplyr::select(-hasGender)
+mean(df_gender$Pr_Male)
+```
+
+Note how we used the select function here. It's also possible to add a minus sign before a column name, to remove it. Again, very handy.  
+
+Now we can answer our question. The parity seems to be approximately correct as the mean is around **0.55**. We also learnt that some pokemons had no gender. This discovery hit our curiosity, it gave us the idea to check extreme values.  
+
+***
+
+####Extreme values
+what are the min and max values of Pr_Male amongst the Pokemons ?
+
+```{r}
+sprintf("Percentage Male/Female : min = %s, max = %s", min(df_gender$Pr_Male), max(df_gender$Pr_Male))
+```
+
+New function ! *sprintf* lets us print some text and variables in it. Morever, we used *min* and *max* to get the min and max values of the Pr_Male column. The results are interesting : some pokemons can't be found as male or female because they have only one gender. But which one of them ?  
+
+```{r}
+only_M_or_F <- dtf %>% dplyr::filter(Pr_Male == 1 | Pr_Male == 0) %>% dplyr::select(Name, Pr_Male) %>% dplyr::mutate(Pr_Male = as.logical(Pr_Male)) %>% dplyr::rename(Exists_as_Male_Only = Pr_Male)
+```
+
+Here, we used two new functions from the dplyr package :  
+
+* **mutate** -> allows us to perform some actions on columns values. If we wanted to, we could also create a new column with this method.  
+* **rename** -> the name is explicit enough !  
+
+So, what are the results ?
+```{r}
+sprintf("Amount of Pokemons existing as Male only or Female only : %s", length(only_M_or_F$Name))
+```
+
+And an overlook of some of them :
+```{r}
+shiny::renderTable({
+  head(only_M_or_F)
+}, striped = TRUE)
+```
+
+One has to note that if the row is at FALSE, it means that the pokemon exists as a Female **only**.  
+
+***
+
+#### Male / female ratio by type
+As we want to go further, we'd like to know the Male / Female ratio, but by type this time.  
+
+Unlike the previous part, we will answer this question with visualization : a histogram.
+First, we create a dataframe based on the main one : **dtf**. We want two columns that associate, for each type, its mean of male percentage. 
+```{r}
+# Creating the dataframe
+gender_by_type <- dtf %>% dplyr::filter(hasGender == 'True') %>% dplyr::select(Pr_Male, Type=Type_1) %>% dplyr::group_by(Type) %>% dplyr::summarize(
+  Mean_Pr_Male = mean(Pr_Male)
+)
+```
+
+Again, two new functions from the dplyr package :  
+
+* **group by** -> the name is explicit enough !  
+* **summarize** or **summarise** -> lets us perform some actions over the group_by function, and create new columns. Here for example, meanwhile we group Pokemons by type, we create a new column containing the mean of Pr_Male.  
+
+Note that the **select** function has been used here to select columns, but also to rename one of them.  
+
+Now, we use our new dataframe to build a nice histogram with the ggplot function.
+
+```{r}
+# Plotting it
+ggplot(gender_by_type, aes(x=Mean_Pr_Male, fill=Type)) +
+  geom_histogram(binwidth = 0.05)
+
+```
+
+The first parameter of **ggplot** function is the data, here our dataframe. Then, we give it an *aesthetics* parameter, containing here a *x* axis parameter and a *fill* one. Passing the *Type* column to the fill parameter means that we want ggplot to fill with distinct color the areas of the histogram relative to a given type.  
+
+Then, with the **+** character, we "add" a new **layer** to our plot. Layers are very important and powerful in ggplot. There are many of them and they give us the ability to create a large range of plots, and to tweak them easily.  
+
+The layer we add here is called **geom_histogram**. The parameter we gave to it is the **binwidth** one. It sets the width each "bar" of the histogram will have.  
+
+What are the results ?  
+
+Well, we just discovered that Pokemon is a victim and an actor of sexist cliches ! The **Fairy** type (on the very left side) is mostly represented by females whereas there are more mens in the **Fighting** type (on the very right side).  
+
+***
+
+###B - Is there a type in which pokemons are stronger ?  
+####Dataframe creation
+To answer this question, we'll only need the columns : Type_1 (we'll rename it to Type), Total (we'll rename it to Strength), HP and Catch_Rate.  
+
+Moreover, because we'll approximate the strength as the Total, and because we want to plot the HP against the Total, we have to substract HP from Total, that contains it for now.  
+
+Let's do this :
+
+```{r}
+# Creating the dataframe
+strength_by_type <- dtf %>% dplyr::select(Strength = Total, HP, Type = Type_1, Catch_Rate) %>% dplyr::mutate(
+  Strength = Strength-HP
+)
+
+renderTable({
+  head(strength_by_type)
+}, striped = TRUE)
+```
+  
+***  
+
+####Answering the question
+Let's try a naive scatter plot with the dataframe we built. It should do the job ! ... or will it ?  
+
+We'll use the layer **geom_point** to create the scatter plot. The aesthetics parameters of the **ggplot** function are *x*, *y* (obviously) and *color* ! It's used to color the points depending on their types. The **ggtitle** layer allows us to add a title to our visualization.
+
+```{r}
+ggplot(strength_by_type, aes(x=Strength, y=HP, color=Type)) +
+      geom_point() +
+      ggtitle("Pokemons repartition by strength, HP, and types")
+```
+
+What a mess ! There are way too many types in here ! But the **shiny** library can help us by turning this plot into an interactive one.  
+
+Moreover, it could be nicer if we used the *alpha* and *size* parameters of geom_point, to add some transparency and to increase point sizes.
+
+A shiny app is created with the **shinyApp** function and needs two main parameters : a UI (User Interface) and a server. You will see that we can very easily create a reactive scatter plot. The user select one or severals Types and the plot is refreshed on input modification.
+
+```{r}
+shinyApp(
+  ui = fluidPage(
+    selectInput(inputId = "type",
+                label = "Pokemon types : ",
+                choices = strength_by_type$Type,
+                multiple = TRUE),
+
+    plotOutput("plot")
+  ),
+  server = function(input, output) {
+
+    selected_types <- reactive({
+      input$type
+    })
+
+    output$plot <- renderPlot({
+      ggplot(strength_by_type %>% dplyr::filter(Type %in% selected_types()), aes(x=Strength, y=HP, color=Type)) +
+      geom_point(alpha = 0.5, size=4) +
+      ggtitle("Pokemons repartition by strength, HP, and types") +
+      guides(color=guide_legend(ncol=2))
+    })
+
+  },
+
+  options = list(height=600)
+)
+```
+
+It's better and easier to compare types with this tool, even though with too many types, it turns messy agains. We'll fix that later. For now, it could be intersting to add a **size** parameter in the aesthetics of ggplot, based on the catching rate.
+
+```{r}
+shinyApp(
+  ui = fluidPage(
+    selectInput(inputId = "type",
+                label = "Pokemon types : ",
+                choices = strength_by_type$Type,
+                multiple = TRUE),
+
+    plotOutput("plot")
+  ),
+  server = function(input, output) {
+
+    selected_types <- reactive({
+      input$type
+    })
+
+    output$plot <- renderPlot({
+      ggplot(strength_by_type %>% dplyr::filter(Type %in% selected_types()), aes(x=Strength, y=HP, color=Type, size=Catch_Rate)) +
+      geom_point(alpha = 0.5) +
+      scale_size_continuous(range = c(3,7)) +
+      ggtitle("Pokemons repartition by Strength, HP, types and catch rate") +
+      labs(x="Strength", y="HP") +
+      guides(color=guide_legend(ncol=2))
+    })
+
+  },
+
+  options = list(height=600)
+)
+```
+
+We had to add a **scale_size_contiuous** layer to map the point sizes between 3 and 7 pixel. Otherwise, dots would have been way to big or too small. Moreover, we added a **guides** layer, with the guide legend for the colors set to use two columns. This avoid the case where the legend is to tall for the plot.  
+
+A problem remains : with too many types, the plot is nearly useless. We want to find another way to visualize the data.  
+
+A solution could be the **facet_wrap** layer. We'll be able to build a scatter plot by type easily with this tool.  
+
+```{r}
+ggplot(strength_by_type, aes(x=Strength, y=HP, color=Type)) +
+  scale_x_continuous(breaks=seq(0,600,200)) +
+  geom_point() +
+  facet_wrap(~ Type) +
+  ggtitle("Pokemon's repartition by strength, HP, and types") +
+  labs(x="Strength", y="HP") +
+  guides(color=FALSE)
+```
+
+It's a lot clearer !  
+
+Now we can directly answer the question : **there is no type that distinguish itself**. However, it's good to notice that some types are more or less powerful. As an example, most of the **Bug** typed pokemons are quite **weak**, and **all of them** have **less than 100HP**. On the other hand, **Dragon** or **Steel** typed have a good amount of **strong** pokemons and nearly no weak pokemons.  
+
+Another problems is emerging : the deductions we just made are not really precise, it's just a felling. We'd like a visualization that shows clearly the Pokemons stats by type, but also let us figure out the number of pokemons for this type.  
+
+To achieve that, we'll create a new dataframe creating by grouping rows by Type and summarizing them with :  
+
+* **Count** as the number of pokemons in this type  
+
+* **Strength** as the mean of all pokemons strength in this type  
+
+* **HP** as the mean of all pokemons HP in this type  
+
+We already did something similar, it should be easy now. But there is a **trap** ! If we call *length* on the Strength column, it will have to be done **BEFORE** the mean calculation of the Strength. Otherwise, count will be 1, as it is the length of a numerical variable (the result of the mean).  
+
+```{r}
+# Grouping by type, doing the mean on the Total and HP columns
+s_HP_len_by_type <- strength_by_type %>% dplyr::group_by(Type) %>% dplyr::summarize(
+  Count = length(Strength),
+  Strength = mean(Strength),
+  HP = mean(HP)
+)
+
+# Plotting
+ggplot(s_HP_len_by_type, aes(x=Strength, y=HP, color=Type, size=Count)) +
+geom_point() +
+geom_text(aes(label=Type),vjust = 0, nudge_y = 0.7, size=4) +
+ggtitle("Mean of strength and HP, by type") +
+labs(x="Strength", y="HP") +
+guides(color=FALSE)
+```
+
+New thing to note : the **geom_text** layer, to plot some text data on the figure (here Pokemon type names).
+
+The conclusion is that our first deductions were quite right ! But we can be much more precise. We said that there was no type that distinguish itself, but the Dragon type Pokemons really seem to be stronger than the other ones, and the Bug type Pokemons weaker than the other ones. Moreover, we said that the Steel type Pokemons were strong, and it's true, but they are amongst the types with the less HP, so they cannot be part of the strongest Pokemons.  
+
+***
+
+###C - Where can we find them ?  
+
+The question we want to answer is : where can we find the pokemons ? If we use the entire dataset, they'll be spreaded all over the world. It will not be very interesting to locate them at a this large scale. Thus, let's do it at a city scale.
+```{r}
+# Calculating the number of pokemon observation by city
+pokemon_positions_by_city <- bdtf %>% dplyr::select(city) %>% dplyr::group_by(city) %>% dplyr::summarize(
+  nb_obs = length(city)
+)
+shiny::renderTable({
+  head(pokemon_positions_by_city)
+}, striped = TRUE)
+```
+
+This new dataframe let us know the number of observation we have, by city. Because we are chauvinistic frenchies, we have to choose Paris, but because we are curious, we also want to know the city in which there has been the most observations.
+
+```{r}
+# City with the the most observations
+shiny::renderTable({
+  pokemon_positions_by_city %>% dplyr::filter(nb_obs == max(nb_obs))
+}, striped = TRUE)
+```
+
+```{r}
+# Our beloved city
+shiny::renderTable({
+  pokemon_positions_by_city %>% dplyr::filter(city == 'Paris')
+}, striped = TRUE)
+```
+
+Since most of the Pokemon Go events took place in **New York**, it is not a suprise that it is the city with the most observations. Beside that, **Paris** has around 5 times less observations, but still, there are **11210**, it will be enough.
+
+The next step is of course interactively plotting locations of pokemon observations that occurred in Paris. **Shiny** will help us again.
+
+```{r}
+# Creating the dataframe of Paris observations
+paris_observations <- bdtf %>% dplyr::filter(city == 'Paris') %>% dplyr::select(-city)
+shiny::renderTable({
+  head(paris_observations)
+}, striped = TRUE)
+```
+
+Let's plot it ! This time we'll do this by creating a ui and server variables, and then we'll call the shinyApp function, but it does absolutely the same thing.  
+
+The library **leaflet** lets us create map easily and add markers on them. It is able to recognize automatically the latitude and longitude parameters in its data parameters if we name our colmuns : lat, latitude, lng, long or longitude, according to the documentation.
+
+```{r}
+ui <- fluidPage(
+  leafletOutput("mymap"),
+  selectInput(inputId = "ids",
+            label = "Pokemon ids :",
+            choices = paris_observations$pokemonId,
+            multiple = TRUE)
+)
+
+server <- function(input, output, session) {
+
+    selected_ids <- reactive({
+      input$ids
+    })
+
+  output$mymap <- renderLeaflet({
+    leaflet() %>%
+      addProviderTiles(providers$Stamen.TonerLite,
+        options = providerTileOptions(noWrap = TRUE)
+      ) %>%
+      addMarkers(data = paris_observations %>% dplyr::filter(pokemonId %in% selected_ids()) %>% dplyr::select(longitude, latitude))
+  })
+}
+
+shinyApp(ui, server, options = list(height = 500))
+
+```
+
+Since it seems that Paris is being mistaken for the entire France and beyond, we have to figure out a solution to stick with this city only. A good (and easy) solution could be to draw a square like figure centered over Paris. We'll assume that this center is : lat=48.86 and long=2.335. As we want to keep the observations in Paris intra-muros, we'll keep the latitude between 48.82 and 48.90 and the longitude between 2.26 and 2.41 Let's do this ! The good news is that the **filter** function from dplyr accepts a **between** function, perfect to do what we want to do.
+
+```{r}
+real_paris_observations <- dplyr::filter(paris_observations, between(latitude,48.82,48.90), between(longitude,2.26,2.41))
+
+shiny::renderTable({
+  head(real_paris_observations)
+}, striped = TRUE)
+```
+
+And we plot it again :
+```{r}
+ui <- fluidPage(
+  leafletOutput("mymap"),
+  selectInput(inputId = "ids",
+            label = "Pokemon ids :",
+            choices = real_paris_observations$pokemonId,
+            multiple = TRUE)
+)
+
+server <- function(input, output, session) {
+
+    selected_ids <- reactive({
+      input$ids
+    })
+
+  output$mymap <- renderLeaflet({
+    leaflet() %>%
+      addProviderTiles(providers$Stamen.TonerLite,
+        options = providerTileOptions(noWrap = TRUE)
+      ) %>%
+      addMarkers(data = real_paris_observations %>% dplyr::filter(pokemonId %in% selected_ids()) %>% dplyr::select(longitude, latitude))
+  })
+}
+
+shinyApp(ui, server, options = list(height = 500))
+```
+
+It works ! But it's not very user friendly...  
+
+We can improve that by letting the user select Pokemon names instead of ids. Then, we could plot little images of the pokemons instead of the default marker. Finally, we'll restrict the plot to one Pokemon at a time so that it will be clearer.  
+
+```{r}
+r_colors <- rgb(t(col2rgb(colors()) / 255))
+names(r_colors) <- colors()
+
+ui <- fluidPage(
+  leafletOutput("mymap"),
+  selectInput(inputId = "names",
+            label = "Pokemon names :",
+            choices = dtf %>% dplyr::filter(Number %in% real_paris_observations$pokemonId) %>% dplyr::select(Name),
+            multiple = FALSE)
+)
+
+server <- function(input, output, session) {
+  
+    selected_ids <- reactive({
+      input_ids <- dtf %>% dplyr::filter(Name %in% input$names) %>% dplyr::select(Number)
+      return(input_ids$Number)
+    })
+    
+    leafIcons <- reactive({ icons(
+      iconUrl = sapply(selected_ids(), function(pokemonId){
+        zero_pasted <- paste0('000', as.character(pokemonId))
+        name <- substr(zero_pasted, nchar(zero_pasted)-3, nchar(zero_pasted))
+        filename <- paste0(name, '.png')
+        path <- paste0('POKEMON/', filename)
+        return(path)
+      }),
+      iconWidth = 50, iconHeight = 50
+    )})
+
+  output$mymap <- renderLeaflet({
+    leaflet() %>%
+      addProviderTiles(
+        providers$Stamen.TonerLite,
+        options = providerTileOptions(noWrap = TRUE)
+      ) %>%
+      addMarkers(data = real_paris_observations %>% dplyr::filter(pokemonId %in% selected_ids()) %>% dplyr::select(longitude, latitude),
+                 icon = leafIcons())
+  })
+}
+
+shinyApp(ui, server, options = list(height = 800))
